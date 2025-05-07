@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Declare functions
+
+writelog()
+{
+	/usr/bin/logger -is -t "${LOG_PROCESS}" "${1}"
+	if [[ -e "/var/log/jamf.log" ]]; then
+		echo "$(date +"%a %b %d %T") $(hostname -f | awk -F "." '{print $1}') jamf[${LOG_PROCESS}]: ${1}" >>"/var/log/jamf.log"
+	fi
+}
+
+# Set variables
+LOG_PROCESS="rebootNotification"
+BOOT_TIME=$(sysctl kern.boottime | awk -F'[= |,]' '{print $6}')
+CURRENT_TIME=$(date +%s)
+TIME_AGO=$((CURRENT_TIME - BOOT_TIME))
+DAYS_UPTIME=$((TIME_AGO / 60 / 60 / 24))
+
+# If the Mac has been rebooted less than 7 days ago then exit, else carry on
+if [[ $DAYS_UPTIME -lt 7 ]]; then 
+	echo "Don't need to reboot"
+	jamf recon 
+	exit 0 
+else
+	# This function sends a scheduled Yo to the user
+	dialogApp="/usr/local/bin/dialog"
+	dialogFinalCountdown(){
+		icon="/System/Library/CoreServices/Rosetta 2 Updater.app/Contents/Resources/AppIcon.icns"
+		afplay /System/Library/Sounds/Sosumi.aiff &
+		timerTitle="Reboot Needed"
+		timerMessage="It's been ${DAYS_UPTIME} days since you last restarted your Mac. \n\n Please save your work and restart now! \n\n Your Mac will restart in 120 minutes"
+		dialog="$dialogApp \
+--title \"$timerTitle\" \
+--message \"$timerMessage\" \
+--icon \"$icon\" \
+--iconsize 120 \
+--button1text \"Reboot Now\" \
+--infotext \"$scriptVersion\" \
+--position 'bottomright' \
+--timer 7200 \
+--titlefont 'size=25' \
+--messagefont 'size=14' \
+--small \
+--moveable \
+--ontop \
+--overlayicon 'caution' "
+		eval $dialog
+	}
+	
+	# Use this to get the return code from the timer
+	dialogFinalCountdown
+	
+	case $? in
+		# Button was pressed
+		0)
+			shutdown -r now
+		;;
+		# Countdown ended
+		4)
+			shutdown -r now
+		;;
+		# Any other error code
+		*)
+		;;
+	esac	
+fi
