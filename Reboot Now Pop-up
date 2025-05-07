@@ -4,6 +4,7 @@
 
 writelog()
 {
+	LOG_PROCESS="rebootNotification"
 	/usr/bin/logger -is -t "${LOG_PROCESS}" "${1}"
 	if [[ -e "/var/log/jamf.log" ]]; then
 		echo "$(date +"%a %b %d %T") $(hostname -f | awk -F "." '{print $1}') jamf[${LOG_PROCESS}]: ${1}" >>"/var/log/jamf.log"
@@ -16,10 +17,16 @@ BOOT_TIME=$(sysctl kern.boottime | awk -F'[= |,]' '{print $6}')
 CURRENT_TIME=$(date +%s)
 TIME_AGO=$((CURRENT_TIME - BOOT_TIME))
 DAYS_UPTIME=$((TIME_AGO / 60 / 60 / 24))
+scriptVersion="1.0"
+
+# Inform about current uptime
+echo "Device hasn't restarted for ${DAYS_UPTIME} day(s)."
+writelog "Device hasn't restarted for ${DAYS_UPTIME} day(s)."
 
 # If the Mac has been rebooted less than 7 days ago then exit, else carry on
 if [[ $DAYS_UPTIME -lt 7 ]]; then 
-	echo "Don't need to reboot"
+	echo "No reboot needed. Device uptime is under 7 days."
+	writelog "No reboot needed. Device uptime is under 7 days."
 	jamf recon 
 	exit 0 
 else
@@ -50,18 +57,23 @@ else
 	
 	# Use this to get the return code from the timer
 	dialogFinalCountdown
-	
-	case $? in
-		# Button was pressed
-		0)
-			shutdown -r now
-		;;
-		# Countdown ended
-		4)
-			shutdown -r now
-		;;
-		# Any other error code
-		*)
-		;;
-	esac	
+	dialogResult=$?
+
+case $dialogResult in
+	0)
+		echo "User pressed Reboot Now."
+		writelog "User pressed Reboot Now. Rebooting in 5 seconds..."
+		{ sleep 5; sudo shutdown -r now; } > /dev/null 2>&1 &
+	;;
+	4)
+		echo "Countdown ended, forcing reboot."
+		writelog "Countdown ended. Rebooting in 5 seconds..."
+		{ sleep 5; sudo shutdown -r now; } > /dev/null 2>&1 &
+	;;
+	*)
+		echo "Unknown dialog result: $dialogResult"
+		writelog "Unknown dialog result: $dialogResult. No action taken."
+	;;
+esac
+
 fi
